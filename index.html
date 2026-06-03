@@ -341,6 +341,7 @@ let savedLocs=[];try{savedLocs=JSON.parse(localStorage.getItem('oneday_locs')||'
 let invoices=[];try{invoices=JSON.parse(localStorage.getItem('oneday_invoices')||'[]');}catch(e){}
 let currentInvoiceId=null, histTab='all', isClientView=false;
 const ZELLE='201-851-9140', ZELLE_NAME='Eric Saldarriaga';
+const CONTACT_SHORTCUT_NAME='OneDay Pick Contact';
 
 function initGooglePlaces(){
   const input=document.getElementById('newLocAddr');
@@ -366,6 +367,17 @@ window.addEventListener('DOMContentLoaded',function(){
   const params=new URLSearchParams(window.location.search);
   if(params.get('inv')){ renderClientView(params.get('inv')); return; }
 
+  // Contact details handed back by the iOS "OneDay Pick Contact" shortcut.
+  const pName=params.get('name'),pPhone=params.get('phone'),pEmail=params.get('email');
+  if(pName||pPhone||pEmail){
+    if(pName)document.getElementById('clientName').value=pName;
+    if(pPhone)document.getElementById('clientPhone').value=pPhone.replace(/[^\d+]/g,'');
+    if(pEmail)document.getElementById('clientEmail').value=pEmail;
+    showToast((pName||'Contact')+' added from Contacts');
+    // Strip the params so a refresh doesn't re-fill / re-toast.
+    history.replaceState(null,'',window.location.origin+window.location.pathname);
+  }
+
   document.getElementById('sessionDate').valueAsDate=new Date();
   document.getElementById('sessionType').addEventListener('change',function(){
     document.getElementById('customTypeWrap').style.display=this.value==='Custom'?'block':'none';
@@ -376,34 +388,57 @@ window.addEventListener('DOMContentLoaded',function(){
 
 function pickContact(){
   const hint=document.getElementById('contactsHint');
-  // The Contact Picker API (navigator.contacts.select) is Chrome-on-Android only.
-  // iOS Safari does NOT implement it, so it can never trigger a permission popup.
+  const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+
+  // Android Chrome: the real in-browser contact picker exists — use it.
   const hasContacts=('contacts' in navigator)&&('ContactsManager' in window)&&navigator.contacts&&typeof navigator.contacts.select==='function';
-  if(!hasContacts){
-    const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
-    // Surface exactly what the device reports (the requested diagnostic).
-    hint.style.display='block';
-    hint.innerHTML=(isIOS?'iOS Safari has no Contact Picker':'No Contact Picker in this browser')+
-      ' — there\'s no popup it can show.<br><b>Tap the name field</b> and pick the contact from the suggestions bar just above the keyboard (AutoFill).'+
-      '<br><span style="opacity:.6;font-size:10px">diagnostic: navigator.contacts='+(typeof navigator.contacts)+', window.ContactsManager='+('ContactsManager' in window)+'</span>';
-    document.getElementById('clientName').focus();
-    showToast('Pick the contact above the keyboard');
+  if(hasContacts){
+    navigator.contacts.select(['name','tel','email'],{multiple:false}).then(c=>{
+      if(!c||!c.length)return;
+      const n=(c[0].name&&c[0].name[0])?c[0].name[0]:'';
+      const p=(c[0].tel&&c[0].tel[0])?c[0].tel[0].replace(/[^\d+]/g,''):'';
+      const e=(c[0].email&&c[0].email[0])?c[0].email[0]:'';
+      if(n)document.getElementById('clientName').value=n;
+      if(p)document.getElementById('clientPhone').value=p;
+      if(e)document.getElementById('clientEmail').value=e;
+      showToast((n||'Contact')+' added');
+    }).catch(err=>{ if(!err||err.name!=='AbortError')document.getElementById('clientName').focus(); });
     return;
   }
-  // Supported (Android Chrome): use the real picker.
-  navigator.contacts.select(['name','tel'],{multiple:false}).then(c=>{
-    if(!c||!c.length)return;
-    const n=(c[0].name&&c[0].name[0])?c[0].name[0]:'';
-    const p=(c[0].tel&&c[0].tel[0])?c[0].tel[0].replace(/[^\d+]/g,''):'';
-    if(n)document.getElementById('clientName').value=n;
-    if(p)document.getElementById('clientPhone').value=p;
-    showToast((n||'Contact')+' added');
-  }).catch(err=>{
-    if(err&&err.name==='AbortError')return;
+
+  // iOS Safari has NO web contacts API. The only way to browse the real contacts
+  // list is to hand off to the Shortcuts app, which is allowed to. Our shortcut
+  // opens the native picker, then reopens this app with ?name=&phone=&email=.
+  if(isIOS){
+    const a=document.createElement('a');
+    a.href='shortcuts://run-shortcut?name='+encodeURIComponent(CONTACT_SHORTCUT_NAME);
+    a.style.display='none';document.body.appendChild(a);a.click();
+    setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},150);
     hint.style.display='block';
-    hint.textContent='Contacts error: '+((err&&err.name)||'unknown')+' — '+((err&&err.message)||'')+'. Type the name; suggestions appear above the keyboard.';
-    document.getElementById('clientName').focus();
-  });
+    hint.innerHTML='Opening Contacts via Shortcuts… &nbsp;'+
+      '<a href="javascript:void(0)" onclick="toggleContactSetup()" style="color:var(--gold);text-decoration:underline">First time? Set it up ›</a>'+
+      '<div id="contactSetup" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid var(--gold-border);border-radius:8px;color:var(--text);font-size:12px;line-height:1.6">'+
+        '<b>One-time setup (≈1 min):</b><br>'+
+        '1. Open the <b>Shortcuts</b> app → <b>+</b> (new shortcut).<br>'+
+        '2. Name it exactly <b>OneDay Pick Contact</b>.<br>'+
+        '3. Add action <b>Find Contacts</b> (leave filters empty) — or <b>Select Contacts</b> to pick.<br>'+
+        '4. Add <b>Get Details of Contacts</b> → <b>Name</b>. Repeat for <b>Phone Number</b> and <b>Email Address</b>.<br>'+
+        '5. Add a <b>Text</b> action: <code style="color:var(--gold)">https://onedaymp333.github.io/oneday-invoice/?name=[Name]&phone=[Phone]&email=[Email]</code> (insert the variables from step 4).<br>'+
+        '6. Add <b>URL Encode</b> on each variable first if names/emails may contain spaces.<br>'+
+        '7. Add <b>Open URLs</b> with that text. Save.<br>'+
+        'Now this button opens your contacts every time.'+
+      '</div>';
+    return;
+  }
+
+  // Any other desktop/browser: no picker available.
+  hint.style.display='block';
+  hint.textContent='Contact picker isn\'t available here — type the client name.';
+  document.getElementById('clientName').focus();
+}
+function toggleContactSetup(){
+  const s=document.getElementById('contactSetup');
+  if(s)s.style.display=s.style.display==='none'?'block':'none';
 }
 
 function onLocChange(){
