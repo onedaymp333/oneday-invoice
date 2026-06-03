@@ -190,10 +190,13 @@ textarea{resize:vertical;min-height:60px}
 
   <div class="card">
     <div class="card-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Client Info</div>
+    <!-- Wrapped in a real <form> so iOS links these fields as one contact and
+         AutoFill drops name + phone + email together from a single tap. -->
+    <form autocomplete="on" onsubmit="return false">
     <div class="field">
       <label>Client Name</label>
       <div class="name-row">
-        <input type="text" id="clientName" placeholder="e.g. Marcus B." autocomplete="name"/>
+        <input type="text" id="clientName" name="name" placeholder="e.g. Marcus B." autocomplete="name" autocapitalize="words"/>
         <button type="button" class="icon-btn" id="pickBtn" onclick="pickContact()" title="Pick from contacts">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </button>
@@ -201,9 +204,10 @@ textarea{resize:vertical;min-height:60px}
       <div class="hint" id="contactsHint"></div>
     </div>
     <div class="row2">
-      <div class="field"><label>Phone (for text)</label><input type="tel" id="clientPhone" placeholder="5551234567" autocomplete="tel"/></div>
-      <div class="field"><label>Email (optional)</label><input type="email" id="clientEmail" placeholder="client@email.com"/></div>
+      <div class="field"><label>Phone (for text)</label><input type="tel" id="clientPhone" name="tel" placeholder="5551234567" autocomplete="tel"/></div>
+      <div class="field"><label>Email (optional)</label><input type="email" id="clientEmail" name="email" placeholder="client@email.com" autocomplete="email" autocapitalize="off"/></div>
     </div>
+    </form>
   </div>
 
   <div class="card">
