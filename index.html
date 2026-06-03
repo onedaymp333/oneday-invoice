@@ -410,39 +410,16 @@ function pickContact(){
     return;
   }
 
-  // iOS Safari has NO web contacts API. The only way to browse the real contacts
-  // list is to hand off to the Shortcuts app, which is allowed to. Our shortcut
-  // opens the native picker, then reopens this app with ?name=&phone=&email=.
-  if(isIOS){
-    const a=document.createElement('a');
-    a.href='shortcuts://run-shortcut?name='+encodeURIComponent(CONTACT_SHORTCUT_NAME);
-    a.style.display='none';document.body.appendChild(a);a.click();
-    setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},150);
-    hint.style.display='block';
-    hint.innerHTML='Opening Contacts via Shortcuts… &nbsp;'+
-      '<a href="javascript:void(0)" onclick="toggleContactSetup()" style="color:var(--gold);text-decoration:underline">First time? Set it up ›</a>'+
-      '<div id="contactSetup" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid var(--gold-border);border-radius:8px;color:var(--text);font-size:12px;line-height:1.6">'+
-        '<b>One-time setup (≈1 min):</b><br>'+
-        '1. Open the <b>Shortcuts</b> app → <b>+</b> (new shortcut).<br>'+
-        '2. Name it exactly <b>OneDay Pick Contact</b>.<br>'+
-        '3. Add action <b>Find Contacts</b> (leave filters empty) — or <b>Select Contacts</b> to pick.<br>'+
-        '4. Add <b>Get Details of Contacts</b> → <b>Name</b>. Repeat for <b>Phone Number</b> and <b>Email Address</b>.<br>'+
-        '5. Add a <b>Text</b> action: <code style="color:var(--gold)">https://onedaymp333.github.io/oneday-invoice/?name=[Name]&phone=[Phone]&email=[Email]</code> (insert the variables from step 4).<br>'+
-        '6. Add <b>URL Encode</b> on each variable first if names/emails may contain spaces.<br>'+
-        '7. Add <b>Open URLs</b> with that text. Save.<br>'+
-        'Now this button opens your contacts every time.'+
-      '</div>';
-    return;
-  }
-
-  // Any other desktop/browser: no picker available.
+  // iOS Safari has no web contacts API. Easiest reliable path: focus the name
+  // field so the keyboard opens with the contact AutoFill chip right above it —
+  // one tap fills name + phone + email (the fields are grouped in a <form>).
+  const nameEl=document.getElementById('clientName');
+  nameEl.focus();
+  // Nudge the cursor in so iOS reliably raises the keyboard + suggestions.
+  try{nameEl.setSelectionRange(nameEl.value.length,nameEl.value.length);}catch(e){}
   hint.style.display='block';
-  hint.textContent='Contact picker isn\'t available here — type the client name.';
-  document.getElementById('clientName').focus();
-}
-function toggleContactSetup(){
-  const s=document.getElementById('contactSetup');
-  if(s)s.style.display=s.style.display==='none'?'block':'none';
+  hint.textContent='Pick your contact from the bar just above the keyboard — it fills name, phone & email.';
+  showToast('Pick the contact above your keyboard');
 }
 
 function onLocChange(){
