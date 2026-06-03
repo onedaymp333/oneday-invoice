@@ -304,7 +304,7 @@ textarea{resize:vertical;min-height:60px}
 
   <div class="cal-banner" id="clientSaveBanner" style="display:none;background:var(--gold-dim);border-color:var(--gold-border)">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c9a84c" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-    <div class="cal-txt"><strong style="color:var(--gold)">SAVE YOUR INVOICE</strong>Tap <b>Save Invoice as Image</b> below and keep it for your session.</div>
+    <div class="cal-txt"><strong style="color:var(--gold)">SAVE YOUR INVOICE</strong>Tap <b>Download PDF Invoice</b> below and keep your copy for the session.</div>
   </div>
 
   <div class="inv-card" id="invCard">
@@ -340,9 +340,14 @@ textarea{resize:vertical;min-height:60px}
     Text Client the Live Invoice Link
   </button>
 
-  <button class="share-invoice-btn" id="shareBtn" onclick="shareInvoiceImage()">
+  <button class="share-invoice-btn" id="pdfBtn" onclick="downloadPDF()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+    Download PDF Invoice
+  </button>
+
+  <button class="share-invoice-btn" id="shareBtn" onclick="shareInvoiceImage()" style="background:var(--gold-dim);border:1px solid var(--gold-border);color:var(--gold)">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-    Save Invoice as Image
+    Save as Image
   </button>
 
   <button class="paid-btn" id="paidBtn" onclick="markPaidAndBook()">
@@ -427,16 +432,32 @@ function pickContact(){
     return;
   }
 
-  // iOS Safari has no web contacts API. Easiest reliable path: focus the name
-  // field so the keyboard opens with the contact AutoFill chip right above it —
-  // one tap fills name + phone + email (the fields are grouped in a <form>).
-  const nameEl=document.getElementById('clientName');
-  nameEl.focus();
-  // Nudge the cursor in so iOS reliably raises the keyboard + suggestions.
-  try{nameEl.setSelectionRange(nameEl.value.length,nameEl.value.length);}catch(e){}
+  // iOS Safari has no web contacts API. Bridge through the Shortcuts app (which
+  // CAN open the native contacts list): our shortcut picks a contact and reopens
+  // this app with ?name=&phone=&email= that auto-fills the form on load.
+  if(isIOS){
+    const a=document.createElement('a');
+    a.href='shortcuts://run-shortcut?name='+encodeURIComponent(CONTACT_SHORTCUT_NAME);
+    a.style.display='none';document.body.appendChild(a);a.click();
+    setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},150);
+    hint.style.display='block';
+    hint.innerHTML='Opening your contacts via Shortcuts… &nbsp;'+
+      '<a href="javascript:void(0)" onclick="toggleContactSetup()" style="color:var(--gold);text-decoration:underline">Nothing happened? Set it up ›</a>'+
+      '<div id="contactSetup" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid var(--gold-border);border-radius:8px;color:var(--text);font-size:12px;line-height:1.65">'+
+        'Build a shortcut named <b>OneDay Pick Contact</b> in the Shortcuts app (one time). Tap "Set it up" link above or ask Eric — full steps are in the chat.'+
+      '</div>';
+    showToast('Opening Contacts…');
+    return;
+  }
+
+  // Desktop / other browsers: no picker — type the name.
+  document.getElementById('clientName').focus();
   hint.style.display='block';
-  hint.textContent='Pick your contact from the bar just above the keyboard — it fills name, phone & email.';
-  showToast('Pick the contact above your keyboard');
+  hint.textContent='Type the client name (no contact picker available on this device).';
+}
+function toggleContactSetup(){
+  const s=document.getElementById('contactSetup');
+  if(s)s.style.display=s.style.display==='none'?'block':'none';
 }
 
 function onLocChange(){
@@ -709,9 +730,86 @@ function renderClientView(payload){
   document.getElementById('paidBtn').style.display='none';
   document.querySelector('.reset-btn').style.display='none';
   document.getElementById('calBanner').style.display='none';
-  // Client keeps the Save button + a prompt to save the invoice for their records.
+  // Client gets the PDF download (their copy) + image option + a save prompt.
+  document.getElementById('pdfBtn').style.display='flex';
   document.getElementById('shareBtn').style.display='flex';
   document.getElementById('clientSaveBanner').style.display='flex';
+}
+
+// PDF EXPORT — draw a real PDF with jsPDF (no screenshot step). Works on iPhone
+// (opens the PDF → Share → Save to Files) and on a computer (downloads the file).
+function downloadPDF(){
+  const btn=document.getElementById('pdfBtn');
+  if(btn){btn.disabled=true;btn.dataset.o=btn.innerHTML;btn.textContent='Building PDF…';}
+  function done(){if(btn){btn.disabled=false;btn.innerHTML=btn.dataset.o||'Download PDF Invoice';}}
+  function build(){
+    try{
+      const J=window.jspdf&&window.jspdf.jsPDF;if(!J){showToast('PDF tool unavailable');return done();}
+      const d=invoiceData, isEvent=isEventType(d.st);
+      const doc=new J({unit:'pt',format:'letter'});
+      const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight(), M=46;
+      const gold=[201,168,76], dark=[24,24,24], mut=[122,122,122];
+      // Header band + logo
+      doc.setFillColor(10,10,10);doc.rect(0,0,W,96,'F');
+      let logoOk=false;
+      try{const lg=document.querySelector('.inv-logo-img');if(lg&&lg.src){doc.addImage(lg.src,'JPEG',M,34,118,34);logoOk=true;}}catch(e){}
+      if(!logoOk){doc.setTextColor(255,255,255);doc.setFont('helvetica','bolditalic');doc.setFontSize(26);doc.text('OneDay',M,64);}
+      doc.setFont('helvetica','normal');doc.setTextColor(gold[0],gold[1],gold[2]);doc.setFontSize(10);
+      doc.text('INVOICE '+(d.num||''),W-M,42,{align:'right'});
+      doc.setFontSize(8);doc.setTextColor(205,175,95);
+      doc.text(d.status==='completed'?'DEPOSIT PAID':'AWAITING DEPOSIT',W-M,58,{align:'right'});
+      // Field rows
+      let y=140;doc.setDrawColor(233,233,233);
+      function row(label,val){
+        if(val===''||val==null)return;
+        doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(mut[0],mut[1],mut[2]);
+        doc.text(String(label).toUpperCase(),M,y);
+        doc.setFontSize(12);doc.setTextColor(dark[0],dark[1],dark[2]);
+        const lines=doc.splitTextToSize(String(val),W-M-170);
+        doc.text(lines,W-M,y,{align:'right'});
+        y+=(lines.length>1?14*lines.length+10:24);
+        doc.line(M,y-12,W-M,y-12);
+      }
+      row('Client',d.client);row('Session',d.st);
+      row('Date',fmtDate(d.date)||'TBD');row('Time',fmtTime(d.time)||'TBD');
+      if(d.durLabel)row('Duration',d.durLabel);
+      const loc=(d.locName||'')+(d.locAddr&&d.locAddr!==d.locName?'\n'+d.locAddr:'');
+      if(loc.trim())row(isEvent?'Event Venue':'Location',loc.trim());
+      row('Total',fmt(d.total));
+      // Deposit block
+      y+=8;doc.setFillColor(250,245,228);doc.roundedRect(M,y,W-2*M,66,8,8,'F');
+      doc.setTextColor(gold[0],gold[1],gold[2]);doc.setFontSize(9);doc.text('DEPOSIT DUE NOW',M+16,y+24);
+      doc.setFont('helvetica','bold');doc.setFontSize(28);doc.setTextColor(dark[0],dark[1],dark[2]);
+      doc.text(fmt(d.deposit),W-M-16,y+42,{align:'right'});
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(mut[0],mut[1],mut[2]);
+      doc.text(d.remaining>0?fmt(d.remaining)+(isEvent?' due on event date':' remaining at session'):'Fully paid',M+16,y+46);
+      y+=88;
+      // Instruction
+      const instr=isEvent?"I'll arrive ahead of your start time for load-in & setup. Final balance is due on the event date.":(fmtTime(d.time)?"Please arrive at least 30 minutes prior to your "+fmtTime(d.time)+" start time.":"Please arrive at least 30 minutes prior to your start time.");
+      doc.setTextColor(dark[0],dark[1],dark[2]);doc.setFontSize(10.5);
+      let il=doc.splitTextToSize(instr,W-2*M);doc.text(il,M,y);y+=14*il.length+10;
+      if(d.notes){doc.setTextColor(mut[0],mut[1],mut[2]);doc.setFontSize(10);let nl=doc.splitTextToSize('Note: '+d.notes,W-2*M);doc.text(nl,M,y);y+=14*nl.length+10;}
+      // Payment
+      y+=6;doc.setDrawColor(233,233,233);doc.line(M,y,W-M,y);y+=22;
+      doc.setTextColor(mut[0],mut[1],mut[2]);doc.setFontSize(8);doc.text('PAY YOUR DEPOSIT',M,y);y+=18;
+      doc.setTextColor(dark[0],dark[1],dark[2]);doc.setFontSize(11);
+      doc.text('Cash App:   $onedaymp3',M,y);y+=18;
+      doc.text('Venmo:   @soundsocietyshows',M,y);y+=18;
+      doc.text('Zelle:   201-851-9140  (Eric Saldarriaga)',M,y);
+      // Footer
+      doc.setTextColor(mut[0],mut[1],mut[2]);doc.setFontSize(8);
+      doc.text('OneDay  ·  Thank you for booking.',M,H-38);
+      doc.save('OneDay-Invoice-'+(d.num||'').replace(/[^\w-]/g,'')+'.pdf');
+      showToast('PDF ready — save it to Files');
+    }catch(e){showToast('PDF failed — try again');}
+    finally{done();}
+  }
+  if(!(window.jspdf&&window.jspdf.jsPDF)){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=build;s.onerror=function(){showToast('Could not load PDF tool');done();};
+    document.head.appendChild(s);
+  }else build();
 }
 
 // IMAGE EXPORT — load html2canvas on demand
