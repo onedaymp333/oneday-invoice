@@ -382,7 +382,13 @@ let selLocName='', selLocAddr='';
 let savedLocs=[];
 try{savedLocs=JSON.parse(localStorage.getItem('oneday_locs')||'[]');}catch(e){}
 let contactsOk=false;
-try{contactsOk='contacts' in navigator && typeof navigator.contacts?.select==='function';}catch(e){}
+try{
+  contactsOk = (
+    'contacts' in navigator &&
+    'ContactsManager' in window &&
+    typeof navigator.contacts.select === 'function'
+  );
+}catch(e){ contactsOk=false; }
 let addrTimer=null;
 
 window.addEventListener('DOMContentLoaded',function(){
@@ -390,34 +396,63 @@ window.addEventListener('DOMContentLoaded',function(){
   document.getElementById('sessionType').addEventListener('change',function(){
     document.getElementById('customTypeWrap').style.display=this.value==='Custom'?'block':'none';
   });
-  if(!contactsOk){
-    document.getElementById('pickBtn').style.opacity='0.38';
-    document.getElementById('contactsHint').style.display='block';
+  // Show/hide contacts button based on support
+  const pickBtn = document.getElementById('pickBtn');
+  const contactsHint = document.getElementById('contactsHint');
+  if(contactsOk){
+    pickBtn.style.opacity='1';
+    contactsHint.textContent='Tap the icon to pick a contact';
+    contactsHint.style.color='var(--gold)';
+    contactsHint.style.display='block';
+  } else {
+    pickBtn.style.opacity='0.38';
+    contactsHint.textContent='Tap the name field — Safari will suggest contacts from your keyboard';
+    contactsHint.style.display='block';
   }
   addLine();
   buildSavedLocs();
 });
 
 async function pickContact(){
-  // Try Contact Picker API first
-  if(contactsOk){
-    try{
-      const c=await navigator.contacts.select(['name','tel'],{multiple:false});
-      if(!c||!c.length)return;
-      const n=c[0].name?.[0]||'',p=c[0].tel?.[0]?.replace(/\D/g,'')||'';
-      if(n)document.getElementById('clientName').value=n;
-      if(p)document.getElementById('clientPhone').value=p;
-      if(n)showToast(n+' added');
-      return;
-    }catch(e){
-      if(e.name==='AbortError')return;
+  // Must be called directly from user gesture for iOS to allow it
+  if(!('contacts' in navigator)){
+    showToast('Open in Safari on your iPhone for contacts');
+    return;
+  }
+  try{
+    // Check what properties are available
+    let props = ['name','tel'];
+    try {
+      const supported = await navigator.contacts.getProperties();
+      props = supported.filter(p => ['name','tel','email'].includes(p));
+    } catch(e){}
+
+    const contacts = await navigator.contacts.select(props, {multiple: false});
+    if(!contacts || contacts.length === 0) return;
+
+    const contact = contacts[0];
+    const name = Array.isArray(contact.name) ? contact.name[0] : (contact.name || '');
+    const tel = Array.isArray(contact.tel) ? contact.tel[0] : (contact.tel || '');
+    const phone = tel.replace(/\D/g, '');
+
+    if(name) document.getElementById('clientName').value = name;
+    if(phone) document.getElementById('clientPhone').value = phone;
+
+    if(name) showToast(name + ' added ✓');
+    else showToast('Contact added');
+
+  } catch(err) {
+    if(err.name === 'AbortError') return; // user cancelled, no toast
+    if(err.name === 'InvalidStateError') {
+      showToast('Already open — close and try again');
+    } else if(err.name === 'SecurityError') {
+      showToast('Needs HTTPS — use the GitHub link');
+    } else {
+      showToast('Contacts not available on this device');
+      // fallback to keyboard
+      document.getElementById('clientName').focus();
     }
   }
-  // Fallback: focus the name field so Safari keyboard suggestions appear
-  const nameEl = document.getElementById('clientName');
-  nameEl.focus();
-  nameEl.click();
-  showToast('Type a name — Safari will suggest contacts');
 }
 
 function onLocChange(){
