@@ -432,32 +432,15 @@ function pickContact(){
     return;
   }
 
-  // iOS Safari has no web contacts API. Bridge through the Shortcuts app (which
-  // CAN open the native contacts list): our shortcut picks a contact and reopens
-  // this app with ?name=&phone=&email= that auto-fills the form on load.
-  if(isIOS){
-    const a=document.createElement('a');
-    a.href='shortcuts://run-shortcut?name='+encodeURIComponent(CONTACT_SHORTCUT_NAME);
-    a.style.display='none';document.body.appendChild(a);a.click();
-    setTimeout(function(){if(a.parentNode)a.parentNode.removeChild(a);},150);
-    hint.style.display='block';
-    hint.innerHTML='Opening your contacts via Shortcuts… &nbsp;'+
-      '<a href="javascript:void(0)" onclick="toggleContactSetup()" style="color:var(--gold);text-decoration:underline">Nothing happened? Set it up ›</a>'+
-      '<div id="contactSetup" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid var(--gold-border);border-radius:8px;color:var(--text);font-size:12px;line-height:1.65">'+
-        'Build a shortcut named <b>OneDay Pick Contact</b> in the Shortcuts app (one time). Tap "Set it up" link above or ask Eric — full steps are in the chat.'+
-      '</div>';
-    showToast('Opening Contacts…');
-    return;
-  }
-
-  // Desktop / other browsers: no picker — type the name.
-  document.getElementById('clientName').focus();
+  // iOS / everything else: open the keyboard on the name field. Typing the first
+  // letters surfaces matching contacts in the bar above the keyboard; tapping one
+  // fills name + phone + email together (the fields are grouped in a <form>).
+  const nameEl=document.getElementById('clientName');
+  nameEl.focus();
+  try{nameEl.setSelectionRange(nameEl.value.length,nameEl.value.length);}catch(e){}
   hint.style.display='block';
-  hint.textContent='Type the client name (no contact picker available on this device).';
-}
-function toggleContactSetup(){
-  const s=document.getElementById('contactSetup');
-  if(s)s.style.display=s.style.display==='none'?'block':'none';
+  hint.textContent='Type the first letters of their name, then tap the contact in the bar above the keyboard — it fills phone & email too.';
+  showToast('Type the name — your contacts appear above the keyboard');
 }
 
 function onLocChange(){
